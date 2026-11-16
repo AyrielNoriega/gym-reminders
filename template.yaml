@@ -1,0 +1,127 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Gym Reminders - recordatorios de mensualidad para gimnasios de barrio (100% serverless)
+
+Parameters:
+  SenderEmail:
+    Type: String
+    Description: Correo verificado en SES desde el que se envian los recordatorios
+  GymName:
+    Type: String
+    Default: Gimnasio El Barrio
+    Description: Nombre del gimnasio que aparece en los correos
+  ReminderDaysBefore:
+    Type: Number
+    Default: 3
+    Description: Cuantos dias antes del vencimiento se avisa al afiliado
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Architectures:
+      - arm64
+    MemorySize: 256
+    Timeout: 10
+    CodeUri: src/
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref MembersTable
+        REMINDER_DAYS_BEFORE: !Ref ReminderDaysBefore
+
+Resources:
+  # Tabla de afiliados. Pago por uso: cuesta cero cuando no se usa.
+  MembersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: memberId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: memberId
+          KeyType: HASH
+
+  # API HTTP publica (la usa Postman o una pagina web)
+  GymApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - content-type
+
+  # POST /members -> registra un afiliado o renueva su mensualidad
+  RegisterPaymentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: register.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MembersTable
+      Events:
+        RegisterPayment:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref GymApi
+            Path: /members
+            Method: POST
+
+  # GET /members -> lista afiliados con su estado (activo, por vencer, vencido)
+  ListMembersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: list.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref MembersTable
+      Events:
+        ListMembers:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref GymApi
+            Path: /members
+            Method: GET
+
+  # Todos los dias a las 7:00 AM (hora Bogota) avisa a quien vence pronto
+  SendRemindersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: reminders.handler
+      Timeout: 60
+      Environment:
+        Variables:
+          SENDER_EMAIL: !Ref SenderEmail
+          GYM_NAME: !Ref GymName
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MembersTable
+        # En el sandbox de SES el permiso se valida tambien contra el destinatario,
+        # por eso el recurso es '*'.
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ses:SendEmail
+                - ses:SendRawEmail
+              Resource: '*'
+      Events:
+        DailyCheck:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: cron(0 7 * * ? *)
+            ScheduleExpressionTimezone: America/Bogota
+
+Outputs:
+  ApiUrl:
+    Description: URL base de la API
+    Value: !Sub https://${GymApi}.execute-api.${AWS::Region}.amazonaws.com
+  RemindersFunctionName:
+    Description: Nombre de la Lambda de recordatorios (para ejecutarla manualmente)
+    Value: !Ref SendRemindersFunction
+  MembersTableName:
+    Description: Tabla de DynamoDB con los afiliados
+    Value: !Ref MembersTable
