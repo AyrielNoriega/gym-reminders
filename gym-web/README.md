@@ -1,75 +1,49 @@
-# React + TypeScript + Vite
+# gym-web — front-desk panel
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Single-page panel for the gym's front desk: totals per status, an **Add member** dialog to record payments, and the member list with the reminder status. It talks to the Gym Reminders API (`GET /members`, `POST /members`). The UI is in Spanish.
 
-Currently, two official plugins are available:
+**Stack:** Vite · React 19 · TypeScript · MUI 9 · TanStack Query
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Run it
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+yarn install
+yarn dev        # http://localhost:5173
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+The API URL defaults to the deployed stack. To point it elsewhere, create a `.env` file:
 
 ```
+VITE_API_URL=https://<api-id>.execute-api.us-east-1.amazonaws.com
+```
+
+Other scripts: `yarn build` (type check + production build) and `yarn lint`.
+
+## Structure (feature-first)
+
+```
+src/
+├── main.tsx
+├── app/
+│   ├── App.tsx              # providers: TanStack Query, MUI theme
+│   └── theme.ts
+├── shared/
+│   └── config.ts            # API_URL
+└── features/members/
+    ├── index.ts             # public API of the feature (MembersPage)
+    ├── types.ts             # Member, MembersResponse, RegisterMemberInput…
+    ├── constants.ts         # plans and status labels/colors
+    ├── api/membersApi.ts    # fetch wrapper + GET/POST /members
+    ├── hooks/useMembers.ts  # useMembers (query) + useRegisterMember (mutation)
+    ├── utils/format.ts      # dates and "in N days"
+    └── components/
+        ├── MembersPage.tsx      # the page
+        ├── MemberStats.tsx      # totals per status
+        ├── MembersTable.tsx     # member list
+        ├── AddMemberDialog.tsx  # register payment form
+        └── StatusChip.tsx
+```
+
+- Server data lives in TanStack Query. Registering a member invalidates the `members` query, so the list refreshes on its own.
+- API validation errors (`{ errors: [...] }`) are shown inside the dialog.
+- Everything about members lives inside `features/members`. The rest of the app only imports from its `index.ts`.
